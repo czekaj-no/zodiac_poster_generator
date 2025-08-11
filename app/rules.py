@@ -1,15 +1,12 @@
-# app/rules.py
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Optional, Tuple, Dict, Any, List
 import json, os, math
 
-# --- Moon phase (lekki algorytm) ---
 SYNODIC = 29.530588  # dni
 KNOWN_NEW_MOON = datetime(2000, 1, 6, 18, 14, tzinfo=timezone.utc)
 
-# Fallbacki (gdy brak pliku):
 FALLBACK_WESTERN = [
     {"from":"03-21","to":"04-19","sign":"aries","element":"fire","pl":"Baran"},
     {"from":"04-20","to":"05-20","sign":"taurus","element":"earth","pl":"Byk"},
@@ -55,7 +52,6 @@ FALLBACK_PHASES = [
     {"key":"waning_crescent","pl":"Sierp ubywający"}
 ]
 
-# ----------------- Loader jednego pliku -----------------
 def _load_reference(base_dir: str) -> Dict[str, Any]:
     path = os.path.join(base_dir, "assets", "data", "reference.json")
     if not os.path.exists(path):
@@ -69,7 +65,6 @@ def _load_reference(base_dir: str) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as f:
         ref = json.load(f)
 
-    # bezpieczne fallbacki sekcji
     ref.setdefault("zodiac_western", FALLBACK_WESTERN)
     ref.setdefault("totems", FALLBACK_TOTEMS)
     ref.setdefault("china_zodiac", FALLBACK_CHINESE)
@@ -77,7 +72,6 @@ def _load_reference(base_dir: str) -> Dict[str, Any]:
     ref.setdefault("celtic_tree_21", [])
     return ref
 
-# rules.py
 def fixed_text_pairs(base_dir: str) -> list[tuple[str, str]]:
     ref = _load_reference(base_dir)
     raw = ref.get("texts", [])
@@ -110,13 +104,11 @@ def default_fixed_text_pair(base_dir: str) -> tuple[str, str]:
 
 
 
-# --------------- Pomocnicze ---------------
 def _in_range(mm: int, dd: int, a: str, b: str) -> bool:
     am, ad = map(int, a.split("-"))
     bm, bd = map(int, b.split("-"))
     if (am, ad) <= (bm, bd):
         return (am, ad) <= (mm, dd) <= (bm, bd)
-    # zakres przez Nowy Rok
     return (mm, dd) >= (am, ad) or (mm, dd) <= (bm, bd)
 
 def _index(lst: List[Dict[str, Any]], key: str, value: str) -> Optional[Dict[str, Any]]:
@@ -125,12 +117,10 @@ def _index(lst: List[Dict[str, Any]], key: str, value: str) -> Optional[Dict[str
             return rec
     return None
 
-# --------------- Obliczenia ---------------
 def western_zodiac(ref: Dict[str, Any], m: int, d: int) -> Tuple[str, str, str]:
     for rec in ref["zodiac_western"]:
         if _in_range(m, d, rec["from"], rec["to"]):
             return rec["sign"], rec["element"], rec.get("pl", rec["sign"])
-    # awaryjnie (nie powinno się zdarzyć)
     cap = _index(ref["zodiac_western"], "sign", "capricorn")
     return "capricorn", cap.get("element","earth"), cap.get("pl","Koziorożec")
 
@@ -168,7 +158,6 @@ def celtic_tree_21_for(ref: Dict[str, Any], dt: date) -> Optional[Dict[str, str]
                 return {"slug": rec["slug"], "en": rec.get("en"), "pl": rec.get("pl")}
     return None
 
-# --------------- Numerologia ---------------
 def life_path_number(y: int, m: int, d: int, keep_masters: bool = True) -> int:
     s = sum(int(c) for c in f"{y:04d}{m:02d}{d:02d}")
     while s > 22:
@@ -182,7 +171,6 @@ def life_path_number(y: int, m: int, d: int, keep_masters: bool = True) -> int:
 def birth_number(d: int) -> int:
     return d
 
-# --------------- Publiczne API ---------------
 @dataclass
 class Profile:
     western_sign: str
