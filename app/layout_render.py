@@ -15,6 +15,11 @@ FIXED_PT = 11   # Open Sans Regular
 NAME_Y_RATIO  = 0.115
 FIXED_Y_RATIO = 0.78
 
+# środkowe kółka
+DRAW_CENTER_CIRCLE_OUTLINES = False  # nie rysuj obwódek
+CENTER_CIRCLE_FIT_RATIO = 0.96       # jak mocno „wypychać” PNG w koło (0.90–1.00)
+
+
 def _cm_to_px(cm: float) -> int:
     return int(round(cm / 2.54 * DPI))
 
@@ -137,6 +142,72 @@ def _draw_frame_with_gaps(
         d.line([(frame+a, H-frame), (frame+b, H-frame)], fill=(0,0,0,255), width=line_w)
     for a,b in _segments(H-2*frame, gaps.get("left", [])):
         d.line([(frame, frame+a), (frame, frame+b)], fill=(0,0,0,255), width=line_w)
+
+
+# --- TRZY KÓŁKA W CENTRUM ---
+def _triple_circles_spec(size_key: str, cm_w: float, cm_h: float) -> tuple[int,int]:
+    """Zwraca (średnica_px, odstęp_px). 21x30: 7.5 cm i 0.5 cm; 30x40 skaluje się po krótszym boku (30/21)."""
+    diam_cm, gap_cm = 7.5, 0.5
+    if size_key == "30x40":
+        scale = (min(cm_w, cm_h) / 21.0)  # 30/21
+        diam_cm *= scale
+        gap_cm  *= scale
+    return _cm_to_px(diam_cm), _cm_to_px(gap_cm)
+
+def _triple_circles_boxes(W: int, H: int, D_px: int, G_px: int) -> list[tuple[int,int,int,int]]:
+    """Zwraca listę 3 bboxów (L,T,R,B) wycentrowanych w jednym rzędzie."""
+    total_w = 3*D_px + 2*G_px
+    x0 = (W - total_w) // 2
+    y0 = (H - D_px) // 2
+    return [(x0 + i*(D_px+G_px), y0, x0 + i*(D_px+G_px) + D_px, y0 + D_px) for i in range(3)]
+
+def _draw_circle_outline(d: ImageDraw.ImageDraw, bbox: tuple[int,int,int,int], stroke: int):
+    d.ellipse(bbox, outline=(0,0,0,255), width=stroke)
+
+def _paste_center_fit(im: Image.Image, icon: Image.Image | None, bbox: tuple[int,int,int,int], fit_ratio: float = 0.88):
+    """Wkleja obrazek wycentrowany w kole; skaluje do fit_ratio * średnica. Zakładamy PNG z przezroczystością."""
+    if icon is None:
+        return
+    L, T, R, B = bbox
+    D = min(R-L, B-T)
+    target = int(D * fit_ratio)
+    w, h = icon.size
+    scale = target / max(w, h)
+    icon2 = icon.resize((int(w*scale), int(h*scale)), Image.LANCZOS)
+    cx, cy = L + D//2, T + D//2
+    im.alpha_composite(icon2, (cx - icon2.size[0]//2, cy - icon2.size[1]//2))
+
+
+# --- KONSTELACJE ---
+def _constellation_slug(prof, paths: dict | None) -> str | None:
+    """Preferuj prof.western_sign (np. 'aries'); fallback: slug z pliku ikony zodiaku."""
+    s = getattr(prof, "western_sign", None)
+    if isinstance(s, str) and s.strip():
+        return s.strip().lower()
+    if paths:
+        p = paths.get("zodiac")
+        if p:
+            return os.path.splitext(os.path.basename(p))[0].lower()
+    return None
+
+def _load_constellation(assets_dir: str, prof_or_slug, paths: dict | None = None):
+    """Szukaj w assets/symbols/constellation/: <slug>_constellation.png lub <slug>.png"""
+    if isinstance(prof_or_slug, str):
+        slug = prof_or_slug.strip().lower()
+    else:
+        slug = _constellation_slug(prof_or_slug, paths)
+    if not slug:
+        return None
+    candidates = [
+        os.path.join(assets_dir, "symbols", "constellation", f"{slug}_constellation.png"),
+        os.path.join(assets_dir, "symbols", "constellation", f"{slug}.png"),
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return Image.open(p).convert("RGBA")
+    return None
+
+
 
 def create_poster(
     out_path: str,
@@ -278,6 +349,24 @@ def create_poster(
     if icons["element"]: _paste_center(im, icons["element"], pos["br"])  # 4:30
     if icons["celtic"]:  _paste_center(im, icons["celtic"], pos["bl"])  # 7:30
     if icons["totem"]:   _paste_center(im, icons["totem"], pos["tl"])  # 10:30
+
+    # --- TRZY KÓŁKA W CENTRUM ---
+    D_px, G_px = _triple_circles_spec(size_key, cm_w, cm_h)
+    circle_boxes = _triple_circles_boxes(W, H, D_px, G_px)
+
+    # (1) obrysy kół – WYŁĄCZONE domyślnie
+    if DRAW_CENTER_CIRCLE_OUTLINES:
+        circle_stroke = max(2, int(min(W, H) * 0.0028))
+        for bb in circle_boxes:
+            _draw_circle_outline(d, bb, circle_stroke)
+
+    # (2) zawartość: #1 = konstelacja
+    const_img = _load_constellation(assets_dir, prof, paths)
+    _paste_center_fit(im, const_img, circle_boxes[0], fit_ratio=CENTER_CIRCLE_FIT_RATIO)
+
+    # #2 i #3 zostają puste (na później)
+    # _paste_center_fit(im, img2, circle_boxes[1], fit_ratio=CENTER_CIRCLE_FIT_RATIO)
+    # _paste_center_fit(im, img3, circle_boxes[2], fit_ratio=CENTER_CIRCLE_FIT_RATIO)
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     im.save(out_path, "PNG", dpi=(DPI, DPI))
